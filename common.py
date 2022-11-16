@@ -115,10 +115,10 @@ class Sheet(NamedTuple):
 
 
 class LocalTables(Sheet, Enum):
-    MAIN_SCHEMA = Sheet('./_doc/schema', '欄位定義', ExcelFormats.XSLX)
-    TARGETS = Sheet('./_doc/target_feature_map', '標的列表', ExcelFormats.XSLX)
-    FEATURE = Sheet('./_doc/target_feature_map', '因子列表', ExcelFormats.XSLX)
-    TF_MAP = Sheet('./_doc/target_feature_map', '標的因子對應表', ExcelFormats.XSLX)
+    MAIN_SCHEMA = Sheet('./_docs/schema', '欄位定義', ExcelFormats.XSLX)
+    TARGETS = Sheet('./_docs/target_feature_map', '標的列表', ExcelFormats.XSLX)
+    FEATURE = Sheet('./_docs/target_feature_map', '因子列表', ExcelFormats.XSLX)
+    TF_MAP = Sheet('./_docs/target_feature_map', '標的因子對應表', ExcelFormats.XSLX)
 
     def get_file_loc(self):
         return self.file+self.surfix.value
