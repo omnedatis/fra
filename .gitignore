@@ -1,0 +1,15 @@
+# output
+_docs
+_data
+
+# environment
+env
+
+# system files
+desktop.ini
+
+# python cache files
+__pycache__
+
+# ide
+.spyproject

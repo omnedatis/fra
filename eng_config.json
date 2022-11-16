@@ -1,0 +1,11 @@
+{
+    "db":{
+        "sql_engine": "mssql+pymssql",
+        "user": "sa",
+        "password": "bi2006",
+        "ip_addr": "192.168.0.209",
+        "port": "1433",
+        "db_name": "AI",
+        "charset": "utf8"
+    }
+}
