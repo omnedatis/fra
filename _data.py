@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from common import (
     EngineConfig, LocalTables, ExcelFormats, DataSource, Sheet,
     SQLTables, SCHEMA_COLUMNS, DATA_LOC, DATA_CACHE_LOC, _force_dump, _force_load,
-    get_full_name, ColumnInfo, TableInfo
+    get_valid_name, ColumnInfo, TableInfo
 )
 
 
@@ -44,7 +44,7 @@ class _MiscDataProvider:
         if not os.path.isfile(f'{self.MISC_DB_LOC}/{table_name}.xlsx'):
             raise FileNotFoundError(f'table {table_name} not found')
             
-        full_name = get_full_name(table_name, column_name)
+        full_name = get_valid_name(table_name, column_name)
         if not os.path.isfile(f'{DATA_CACHE_LOC}/{full_name}.pkl'):
             logging.info(f'Loading data on {full_name} from all file')
             table = self._get_all_data(table_name).set_index('PriceDt')
@@ -91,7 +91,7 @@ class _SQLDBDataProvider:
 
     def _get_data(self, table_name:str, column_name:str) -> pd.Series:
         sql_table = SQLTables.get(table_name)
-        full_name = get_full_name(table_name, column_name)
+        full_name = get_valid_name(table_name, column_name)
 
         if not os.path.isfile(f'{DATA_CACHE_LOC}/{full_name}.pkl'):
             logging.info(f'Loading data on {full_name} from all file')

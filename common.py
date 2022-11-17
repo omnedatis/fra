@@ -12,6 +12,7 @@ from typing import NamedTuple, List, Union, Optional, Any, Dict, Callable, Tuple
 import pandas as pd
 
 SCHEMA_COLUMNS = ['code', 'source', 'table', 'label', 'name', 'label2']
+OUT_LOC = './_reports'
 DATA_LOC = './_data'
 DATA_CACHE_LOC = DATA_LOC + '/_cache'
 TASK_LOC = DATA_CACHE_LOC + '/_tasks'
@@ -20,6 +21,8 @@ PRICE_ALIAS = {DATE_INDEX_NAME: ['PriceDt']}
 
 
 DELIMITER = '`'
+
+
 class ColumnInfo(NamedTuple):
     code: str
     name: str
@@ -134,7 +137,7 @@ def _force_load(fp: str):
         case 'csv':
             data = pd.read_csv(fp, encoding='utf-8-sig')
         case 'json':
-            data =  json.load(open(fp, 'r'))
+            data = json.load(open(fp, 'r'))
         case 'pkl':
             data = pickle.load(open(fp, 'rb'))
         case _:
@@ -164,40 +167,20 @@ def _force_dump(obj: Any, fp: str):
             pickle.dump(obj, open(fp, 'wb'))
 
 
-def get_full_name(table_name: str, column_name: str) -> str:
+def get_valid_name(table_name: str, column_name: str) -> str:
     if '/' in column_name:
         column_name = column_name.replace('/', '-') + '_MOD'
     return f'{table_name}/{column_name}'
 
 
-_cache_0 = 0
-
-_cache_1 = 0
-
-_cache_2 = 0
-
-def clear_cache(which:int) -> int:
-    global _cache_0, _cache_1, _cache_2
-    if which < 3:
-        _cache_2 += 1
-    if which < 2:
-        _cache_1 += 1
-    if which < 1:
-        _cache_0 += 1
-    
-
-def get_cache_id(which:int) -> int:
-    global _cache_2, _cache_1, _cache_0
-    return [_cache_0, _cache_1, _cache_2][which]
-
 class ReturnableTread:
-    
-    def __init__(self, target:Callable, args:Tuple):
+
+    def __init__(self, target: Callable, args: Tuple):
         self._target = target
         self._args = args
         self._tread = mt.Thread(target=self._run)
-        self._return = None 
-    
+        self._return = None
+
     def _run(self):
         if self._args is not None:
             ret = self._target(self._args)
@@ -205,15 +188,18 @@ class ReturnableTread:
             ret = self._target()
         self._return = ret
 
+
 PERIOD_MAP = {
-    'D':'日',
-    'W':'週',
-    'M':'月',
-    'Q':'季'
+    'D': '日',
+    'W': '週',
+    'M': '月',
+    'Q': '季'
 }
+
+
 class Period(NamedTuple):
-    step:int
-    type:Literal['D', 'W', 'M', 'Q']
+    step: int
+    type: Literal['D', 'W', 'M', 'Q']
 
     def name(self) -> str:
         return f'{self.step} {PERIOD_MAP[self.type]}'

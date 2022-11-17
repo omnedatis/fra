@@ -13,11 +13,13 @@ from pandas import ExcelFile
 import streamlit as st
 from _data import DataSet
 from common import (
-    get_cache_id, clear_cache, _force_dump, _force_load, LocalTables,
-    ColumnInfo, DATA_CACHE_LOC, TASK_LOC, DELIMITER, Periods
+    LocalTables, ColumnInfo, Periods, OUT_LOC, _force_dump
 )
 
-from _states import get_is_analysis, set_is_analysis
+from _states import (
+    get_is_analysis, set_is_analysis, set_targets, get_targets, get_cache_id,
+    set_reports, get_reports
+)
 # logging setting
 stream_handler = logging.StreamHandler()
 stream_handler.setLevel(logging.INFO)
@@ -26,7 +28,7 @@ logging.basicConfig(level=0 ,handlers=[stream_handler], format='%(message)s')
 # streamlit config
 st.set_page_config(layout='wide')
 
-PAGES = ['標的因子對應資訊', '資料欄位資訊', '因子分析']
+PAGES = ['標的因子對應資訊', '資料欄位資訊', '因子分析', '更新標的因子對應表']
 
 @st.cache
 def get_cache_tables(cached_id:int) -> dict:
@@ -146,6 +148,11 @@ def get_disable_state(cache_id) -> bool:
 def _handle_analysis_on_click(is_analysis):
     set_is_analysis(is_analysis)
 
+def _handle_report_on_click():
+    reports = get_reports()
+    for name, each in reports.items():
+        _force_dump(each, f'{OUT_LOC}/{name}.csv')
+
 
 if __name__ == '__main__':
     cache_id = get_cache_id(0)
@@ -155,9 +162,9 @@ if __name__ == '__main__':
     if get_is_analysis():
         page = PAGES[2]
     else:
-        page = st.sidebar.selectbox('選擇頁面', options=[i for i in _cache_tables])
+        page = st.sidebar.selectbox('選擇頁面', options=[i for i in _cache_tables]+[PAGES[3]])
 
-    match page:
+    match page: 
         case '標的因子對應資訊':
             containers = st.tabs(_cache_tables[page])
             for idx, sheet in enumerate(_cache_tables[page]):
@@ -179,6 +186,7 @@ if __name__ == '__main__':
                         with containers[idx]:
                             _table = table.style.apply(_styler, color='#fcec3d', axis=None)
                             st.dataframe(_table)
+                    set_targets(targets)
                 elif sheet == LocalTables.TF_MAP.sheet:
                     with containers[idx]:
                         names = table['target_name'].values
@@ -202,23 +210,28 @@ if __name__ == '__main__':
                         cinfo = cinfo_map[each]
                         cols[idx].dataframe(dataset.series[cinfo.key])
             st.sidebar.button('執行分析', key='analysis', on_click=lambda : _handle_analysis_on_click(True))
-
+        case '更新標的因子對應表':
+            st.write('🚧')
         case '因子分析':
             st.sidebar.button('返回設定頁', key='return', on_click=lambda : _handle_analysis_on_click(False))
             st.sidebar.selectbox('選擇領先期別', Periods.get_list())
             st.markdown('## 執行分析項目')
-            targets = _cache_tables[PAGES[0]][LocalTables.TARGETS.sheet]['target_name'].tolist()
+            targets = get_targets()
             s_task = _get_single_tasks(cache_id)
             containers = st.tabs(targets)
-            for idx, name in  enumerate(targets):
+            report = {}
+            for idx, t_name in  enumerate(targets):
                 with containers[idx]:
                     ret = []
                     items = sorted(_single_feature_corr(
-                        s_task, name).items(), key = lambda x: x[1], reverse=True)
+                        s_task, t_name).items(), key = lambda x: x[1], reverse=True)
                     for name, value in items:
                         ret.append({**cinfo_map[name]._asdict(), **{"coef":value}})
                     df = pd.DataFrame(ret)
+                    report[t_name] = df
                     st.dataframe(df)
+            set_reports(report)
+            st.sidebar.button('產生報表', on_click=_handle_report_on_click)
 
         case _:
             raise RuntimeError(f'unrecognizable fable {page}')
