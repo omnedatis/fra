@@ -6,7 +6,8 @@ import json
 import logging
 import os
 import pickle
-from typing import NamedTuple, List, Union, Optional, Any, Dict
+import threading as mt
+from typing import NamedTuple, List, Union, Optional, Any, Dict, Callable, Tuple, Literal
 
 import pandas as pd
 
@@ -119,6 +120,7 @@ class LocalTables(Sheet, Enum):
     TARGETS = Sheet('./_docs/target_feature_map', '標的列表', ExcelFormats.XSLX)
     FEATURE = Sheet('./_docs/target_feature_map', '因子列表', ExcelFormats.XSLX)
     TF_MAP = Sheet('./_docs/target_feature_map', '標的因子對應表', ExcelFormats.XSLX)
+    F_TYPE = Sheet('./_docs/target_feature_map', '因子類型', ExcelFormats.XSLX)
 
     def get_file_loc(self):
         return self.file+self.surfix.value
@@ -168,18 +170,64 @@ def get_full_name(table_name: str, column_name: str) -> str:
     return f'{table_name}/{column_name}'
 
 
-_cache_id = 0
+_cache_0 = 0
+
+_cache_1 = 0
+
+_cache_2 = 0
+
+def clear_cache(which:int) -> int:
+    global _cache_0, _cache_1, _cache_2
+    if which < 3:
+        _cache_2 += 1
+    if which < 2:
+        _cache_1 += 1
+    if which < 1:
+        _cache_0 += 1
+    
+
+def get_cache_id(which:int) -> int:
+    global _cache_2, _cache_1, _cache_0
+    return [_cache_0, _cache_1, _cache_2][which]
+
+class ReturnableTread:
+    
+    def __init__(self, target:Callable, args:Tuple):
+        self._target = target
+        self._args = args
+        self._tread = mt.Thread(target=self._run)
+        self._return = None 
+    
+    def _run(self):
+        if self._args is not None:
+            ret = self._target(self._args)
+        else:
+            ret = self._target()
+        self._return = ret
+
+PERIOD_MAP = {
+    'D':'日',
+    'W':'週',
+    'M':'月',
+    'Q':'季'
+}
+class Period(NamedTuple):
+    step:int
+    type:Literal['D', 'W', 'M', 'Q']
+
+    def name(self) -> str:
+        return f'{self.step} {PERIOD_MAP[self.type]}'
 
 
-def clear_cache():
-    global _cache_id
-    _cache_id += 1
+class Periods(Period, Enum):
+    TWOWEEK = Period(2, 'W')
+    ONEMONTH = Period(1, 'M')
+    TWOMONTH = Period(2, 'M')
+    ONEQUATAR = Period(1, 'Q')
 
-
-def get_cache_id():
-    global _cache_id
-    return _cache_id
-
-class Task(NamedTuple):
-    target:pd.Series
-    features:List[pd.Series] = []
+    @classmethod
+    def get_list(cls) -> List[str]:
+        ret = []
+        for each in cls:
+            ret.append(each.name())
+        return ret

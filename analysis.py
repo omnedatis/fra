@@ -3,7 +3,8 @@ from collections import defaultdict
 import glob
 import logging
 import os
-from typing import Dict, Literal, Tuple, List
+import threading as mt
+from typing import Dict, Literal, Tuple, List, Optional
 
 import numpy as np
 import openpyxl
@@ -12,8 +13,8 @@ from pandas import ExcelFile
 import streamlit as st
 from _data import DataSet
 from common import (
-    get_cache_id, clear_cache, _force_dump, _force_load, LocalTables, ColumnInfo,
-    Task, DATA_CACHE_LOC, TASK_LOC, DELIMITER
+    get_cache_id, clear_cache, _force_dump, _force_load, LocalTables,
+    ColumnInfo, DATA_CACHE_LOC, TASK_LOC, DELIMITER, Periods
 )
 
 from _states import get_is_analysis, set_is_analysis
@@ -28,20 +29,18 @@ st.set_page_config(layout='wide')
 PAGES = ['標的因子對應資訊', '資料欄位資訊', '因子分析']
 
 @st.cache
-def get_dataset(cache_id):
+def get_cache_tables(cached_id:int) -> dict:
+    _cache_tables = {}
+    _cache_tables.update(get_target_feature_map(get_cache_id(1)))
+    _cache_tables.update(get_schema(get_cache_id(0)))
+    return _cache_tables
+
+@st.cache
+def get_dataset(cached_id:int) -> DataSet:
     return DataSet()
 
 @st.cache
-def get_target_feature_map(cache_id:int) -> Dict[Literal['標的因子對應資訊'], Dict[str, pd.DataFrame]]:
-    ret={}
-    sheet_names = openpyxl.load_workbook(LocalTables.TF_MAP.get_file_loc()).sheetnames
-    with ExcelFile(LocalTables.TF_MAP.get_file_loc()) as ex_file:
-        for sheet in sheet_names:
-            ret[sheet] = pd.read_excel(ex_file, sheet)
-    return {PAGES[0]:ret}
-
-@st.cache
-def get_schema(cache_id:int) -> Dict[Literal['資料欄位資訊'], Dict[str, pd.DataFrame]]:
+def get_schema(cached_id:int) -> Dict[Literal['資料欄位資訊'], Dict[str, pd.DataFrame]]:
     ret = {}
     sheet_names = openpyxl.load_workbook(LocalTables.MAIN_SCHEMA.get_file_loc()).sheetnames
     with ExcelFile(LocalTables.MAIN_SCHEMA.get_file_loc()) as ex_file:
@@ -51,77 +50,108 @@ def get_schema(cache_id:int) -> Dict[Literal['資料欄位資訊'], Dict[str, pd
     return {PAGES[1]:ret} 
 
 @st.cache
-def get_column_info(cache_id:int) -> Dict[str, ColumnInfo]:
-    data:pd.DataFrame = get_schema(cache_id)[PAGES[1]]['欄位定義'][list(ColumnInfo._fields)].dropna()
+def get_column_info(cached_id:int) -> Dict[str, ColumnInfo]:
+    data:pd.DataFrame = get_schema(get_cache_id(0))[PAGES[1]]['欄位定義'][list(ColumnInfo._fields)].dropna()
     names = data['name'].values
     data = data.values
 
     return {n:ColumnInfo(*i.tolist()) for n, i in zip(names, data)}
 
 @st.cache
-def get_tf_map(cache_id) -> Dict[str, str]:
-    data = get_target_feature_map(
-        cache_id)[PAGES[0]]['標的因子對應表'][['target_name', 'feature_name']].dropna()
+def get_target_feature_map(cached_id:int) -> Dict[Literal['標的因子對應資訊'], Dict[str, pd.DataFrame]]:
+    ret={}
+    with ExcelFile(LocalTables.TF_MAP.get_file_loc()) as ex_file:
+        for sheet, name in zip(ex_file.book.worksheets, ex_file.book.sheetnames):
+            if sheet.sheet_state == 'visible':
+                ret[name] = pd.read_excel(ex_file, name)
+    return {PAGES[0]:ret}
+
+
+@st.cache
+def get_tf_map(cached_id:int) -> Dict[str, List[str]]:
+    data = get_target_feature_map(get_cache_id(
+        1))[PAGES[0]]['標的因子對應表'][['target_name', 'feature_name']].dropna()
     ret = defaultdict(list)
     for target, feature in data.values.tolist():
         ret[target].append(feature)
     return ret
     
 @st.cache
-def _gen_tasks(cache_id):
-    cinfo_map = get_column_info(cache_id)
-    tf_map = get_tf_map(cache_id)
-    tasks:List[Task] = []
+def _get_single_tasks(cache_id) -> Dict[str, Dict[str, Tuple[pd.Series, pd.Series]]]:
+    cinfo_map = get_column_info(get_cache_id(0))
+    tf_map = get_tf_map(get_cache_id(1))
     esp_names = []
-    task_names = {}
+    single_feature = defaultdict(dict)
+
     for target, features in tf_map.items():
         try:
-            task_names[target] = [f for f in features]
-            tasks.append(Task(dataset.series[cinfo_map[target].key], [dataset.series[cinfo_map[i].key] for i in features]))
+            t_data = dataset.series[cinfo_map[target].key]
         except Exception as esp:
+            esp_names.append(target)
+        for f in features:
             try:
-                for i in features:
-                    cinfo_map[i]
+                f_data = dataset.series[cinfo_map[f].key]
             except Exception as esp:
-                esp_names.append(i)
+                esp_names.append(target)
+            single_feature[target][f] = t_data, f_data
+
     if esp_names:
         logging.warning(f'invalid feature {esp_names} encontered')
-    for t in tasks:
-        tname = str(t.target.name).split(DELIMITER)[-1]
-        for idx, f in enumerate(t.features):
-            df = pd.concat([t.target, f], axis=1, sort=True).astype('float32')
-            _force_dump((f.astype('float32'), t.target.astype('float32')), f'{TASK_LOC}/{tname}/pkl/{tname}--{task_names[tname][idx]}.pkl')
-            _force_dump(df, f'{TASK_LOC}/{tname}/csv/{tname}--{task_names[tname][idx]}.csv')
-        _force_dump((t.target.astype('float32'),  [f.astype('float32') for f in t.features]), f'{TASK_LOC}/{tname}/{tname}.pkl')
+
+    return single_feature
 
 @st.cache
-def _single_feature_analysis(cache_id):
-    # x transform
-    tasks = glob.glob(f'{TASK_LOC}/*/pkl/*.pkl')
-    datasets = [_force_load(i) for i in tasks]
-    for X, Y in datasets:
-        print(X, Y)
-        # model:somemodel@Model = Model(x,y)
-        # model.fit()
-        
-    # y transfrom
-    # dataset transform
+def _get_multi_task(cache_id):
+    cinfo_map = get_column_info(get_cache_id(0))
+    tf_map = get_tf_map(get_cache_id(1))
+    esp_names = []
+    multi_features = {}
+    feat = []
+    for target, features in tf_map.items():
+        try:
+            t_data = dataset.series[cinfo_map[target].key]
+        except Exception as esp:
+            esp_names.append(target)
+        for f in features:
+            try:
+                f_data = dataset.series[cinfo_map[f].key]
+            except Exception as esp:
+                esp_names.append(target)
+            feat.append(f_data)
+                
+        multi_features[target] = t_data, feat
+    if esp_names:
+        logging.warning(f'invalid feature {esp_names} encontered')
+
+    return multi_features
+
+
+def _single_feature_corr(tasks:Dict[str, Dict[str, Tuple[pd.Series, pd.Series]]],
+        target_name:str) -> dict:
+
+    ret = defaultdict(dict)
+    for t_name, task in tasks.items():
+        if t_name != target_name:
+            continue
+        for name, (X, Y) in task.items():
+            ts = pd.concat([X, Y], axis=1, sort=True).dropna()
+            ret[target_name][name] = np.corrcoef(ts.values.T)[0,1].tolist()
+    return ret[target_name]
+
 
 @st.cache
-def get_disable_state(cache_id):
+def get_disable_state(cache_id) -> bool:
     return get_is_analysis()
 
 def _handle_analysis_on_click(is_analysis):
     set_is_analysis(is_analysis)
-    if is_analysis:
-        _gen_tasks(cache_id)
+
 
 if __name__ == '__main__':
-    cache_id = get_cache_id()
-    _cache_tables = {}
-    _cache_tables.update(get_target_feature_map(cache_id))
-    _cache_tables.update(get_schema(cache_id))
+    cache_id = get_cache_id(0)
     dataset = get_dataset(cache_id)
+    _cache_tables = get_cache_tables(cache_id)
+    cinfo_map = get_column_info(cache_id)
     if get_is_analysis():
         page = PAGES[2]
     else:
@@ -132,18 +162,36 @@ if __name__ == '__main__':
             containers = st.tabs(_cache_tables[page])
             for idx, sheet in enumerate(_cache_tables[page]):
                 table = _cache_tables[page][sheet]
-                with containers[idx]:
-                    st.dataframe(table)
                 if sheet == LocalTables.TARGETS.sheet:
-                    target = st.sidebar.selectbox('選擇標的', table['target_name'].values.tolist())
-                if sheet == LocalTables.FEATURE.sheet:
-                    features = st.sidebar.multiselect('選擇因子', table['feature_name'].values.tolist())
+                    targets = st.sidebar.multiselect('選擇標的', table['target_name'].values.tolist())
+                    def _styler(x:pd.DataFrame, color:str) -> np.ndarray:
+                        ret = np.full(x.shape, False)
+                        names = table['target_name'].values
+                        _targets = np.array(targets)
+                        names, _targets = np.ix_(names, _targets)
+                        ret[(names==_targets).sum(axis=1)>0] =True
+                        return np.where(ret, f'background-color: {color};', None)
+                    if not targets:
+                        targets = table['target_name'].values.tolist()
+                        with containers[idx]:
+                            st.dataframe(table)
+                    else:
+                        with containers[idx]:
+                            _table = table.style.apply(_styler, color='#fcec3d', axis=None)
+                            st.dataframe(_table)
+                elif sheet == LocalTables.TF_MAP.sheet:
+                    with containers[idx]:
+                        names = table['target_name'].values
+                        targets = np.array(targets)
+                        names, targets = np.ix_(names, targets)
+                        _table = table[(names == targets).sum(axis=1)>0]
+                        st.dataframe(_table)
             st.sidebar.button('執行分析', key='analysis', on_click=lambda : _handle_analysis_on_click(True))
 
         case '資料欄位資訊':
             index_name = None
             sheet_name =_cache_tables[page]['欄位定義']
-            cinfo_map = get_column_info(cache_id)
+            
             index_names = st.sidebar.multiselect('因子清單', options=[i for i in cinfo_map])
             length = len(index_names)
             if length > 0:
@@ -156,18 +204,30 @@ if __name__ == '__main__':
             st.sidebar.button('執行分析', key='analysis', on_click=lambda : _handle_analysis_on_click(True))
 
         case '因子分析':
-            st.sidebar.button('返回設定頁', key='return',  on_click=lambda : _handle_analysis_on_click(False))
+            st.sidebar.button('返回設定頁', key='return', on_click=lambda : _handle_analysis_on_click(False))
+            st.sidebar.selectbox('選擇領先期別', Periods.get_list())
+            st.markdown('## 執行分析項目')
+            targets = _cache_tables[PAGES[0]][LocalTables.TARGETS.sheet]['target_name'].tolist()
+            s_task = _get_single_tasks(cache_id)
+            containers = st.tabs(targets)
+            for idx, name in  enumerate(targets):
+                with containers[idx]:
+                    ret = []
+                    items = sorted(_single_feature_corr(
+                        s_task, name).items(), key = lambda x: x[1], reverse=True)
+                    for name, value in items:
+                        ret.append({**cinfo_map[name]._asdict(), **{"coef":value}})
+                    df = pd.DataFrame(ret)
+                    st.dataframe(df)
+
         case _:
             raise RuntimeError(f'unrecognizable fable {page}')
 
     
-    with st.sidebar.expander('!!!'):
-        cmd = st.text_input('')
-        if cmd == 'clear':
-            clear_cache()
-    # clear = st.sidebar.button('清空快取', key='clear_cache')
-    # if clear:
-    #     clear_cache()
+    # with st.sidebar.expander('!!!'):
+    #     cmd = st.text_input(' ')
+    #     if cmd == 'clear':
+    #         clear_cache(0)
    
 
         

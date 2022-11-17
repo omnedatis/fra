@@ -156,7 +156,7 @@ class DataSet:
                 self.update_col_info(cinfo.key, cinfo) 
 
     @classmethod
-    def _gen_config(cls)  -> None:
+    def _gen_config(cls) -> None:
         tables = {}
         schema = _read_local_table(
             LocalTables.MAIN_SCHEMA)[list(ColumnInfo._fields)].dropna()
