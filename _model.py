@@ -1,51 +1,52 @@
 # -*- coding: utf-8 -*-
 from abc import ABCMeta, abstractmethod
-import glob
-from typing import Optional, List
-
 import numpy as np
+import pandas as pd
+from typing import Optional
 
-from common import _force_load
+from common import Period
 
-files = glob.glob('./_data/_cache/_tasks/S&P 500 INDEX/**/*.pkl', recursive=True)
+class TransformerBase(metaclass=ABCMeta):
 
-tasks = {}
-for f in files:
-    name = f.split('\\')[-1][:-4]
-    tasks[name] = _force_load(f)
+    @abstractmethod
+    def transform(self):
+        ...
 
-class BaseTransformer(metaclass=ABCMeta):
+class PeriodTransformer(TransformerBase):
+
+    def __init__(self, period:Period):
+        self._period = period
+
+    def transform(self, data:pd.Series):
+        if self._period is None:
+            return data
+        return data.shift(-self._period.steps)
+
+
+class SingleCorrModel:
     
-    @abstractmethod
-    def fit():...
-
-    @abstractmethod
-    def transform():...
-
-    @abstractmethod
-    def fit_transform():...
-
-
-class Model:
-    
-    def __init__(self, X:np.ndarray, Y:np.ndarray, 
-            x_transformer:Optional[List[BaseTransformer]]=None, 
-            y_transformer:Optional[List[BaseTransformer]]=None):
-        self._X = X
-        self._Y = Y
-        self._x_transformers = []
-        self._y_transformers = []
+    def __init__(self, *, x_transformer:Optional[TransformerBase]=None,
+            y_transformer:Optional[TransformerBase]=None):
+        self._x_transformer = x_transformer
+        self._y_transformer = y_transformer
     
     @property
     def x_transformers(self):
-        return self._x_transformers
+        return self._x_transformer
 
     @property
-    def x_transformers(self):
-        return self._x_transformers
+    def y_transformers(self):
+        return self._y_transformer
 
-    def compile(self,):
-        ...
+    def _fit(self, x_data:pd.Series, y_data:pd.Series) -> pd.DataFrame:
+        if self._x_transformer is not None:
+            x_data = self._x_transformer.transform(x_data)
+        if self._y_transformer is not None:
+            y_data = self._y_transformer.transform(y_data)
+        data = pd.concat([x_data, y_data], axis=1, sort=True)
+        data.iloc[:,1] = data.iloc[:,1].ffill()
+        return data.dropna()
 
-    def fit(self):
-        ...
+    def get_corr(self, x_data:pd.Series, y_data:pd.Series):
+        data = self._fit(x_data, y_data)
+        return np.corrcoef(data.values.T)

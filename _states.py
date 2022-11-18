@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from typing import List, Union, Dict
 import pandas as pd
+from common import Period
 
 _is_analysis = False
 
@@ -13,6 +14,10 @@ _cache_0 = 0
 _cache_1 = 0
 
 _cache_2 = 0
+
+_period = None
+
+_tf_map_table = None
 
 
 def get_is_analysis() -> bool:
@@ -59,3 +64,20 @@ def get_reports() -> Dict[str, Union[pd.DataFrame, pd.Series]]:
 def set_reports(values:Dict[str, Union[pd.DataFrame, pd.Series]]):
     global _reports
     _reports = values
+
+def get_period() -> Union[Period, None]:
+    global _period
+    return _period
+
+def set_period(value:Period):
+    global _period
+    _period = value
+    return _period
+
+def get_tf_map_table()-> Union[pd.DataFrame, None]:
+    global _tf_map_table
+    return _tf_map_table
+
+def set_tf_map_table(value:pd.DataFrame):
+    global _tf_map_table
+    _tf_map_table = value

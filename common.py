@@ -189,20 +189,32 @@ class ReturnableTread:
         self._return = ret
 
 
-PERIOD_MAP = {
+PERIOD_NAME_MAP = {
     'D': '日',
     'W': '週',
     'M': '月',
     'Q': '季'
 }
 
+PERIOD_NUM_MAP = {
+    'D': 1,
+    'W': 5,
+    'M': 20,
+    'Q': 60
+}
+
 
 class Period(NamedTuple):
-    step: int
+    unit: int
     type: Literal['D', 'W', 'M', 'Q']
 
+    @property
     def name(self) -> str:
-        return f'{self.step} {PERIOD_MAP[self.type]}'
+        return f'{self.unit} {PERIOD_NAME_MAP[self.type]}'
+
+    @property
+    def steps(self) -> int:
+        return self.unit*PERIOD_NUM_MAP[self.type]
 
 
 class Periods(Period, Enum):
@@ -212,8 +224,12 @@ class Periods(Period, Enum):
     ONEQUATAR = Period(1, 'Q')
 
     @classmethod
-    def get_list(cls) -> List[str]:
-        ret = []
-        for each in cls:
-            ret.append(each.name())
-        return ret
+    def get_name(cls) -> List[str]:
+        return [i.name for i in cls]
+
+    @classmethod
+    def get(cls, value) -> Period:
+        for i in cls:
+            if i.name == value:
+                return i
+        raise RuntimeError(f'Invalid period value encounterd {value}')

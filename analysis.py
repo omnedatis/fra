@@ -18,8 +18,9 @@ from common import (
 
 from _states import (
     get_is_analysis, set_is_analysis, set_targets, get_targets, get_cache_id,
-    set_reports, get_reports
+    set_reports, get_reports, set_period, get_period, set_tf_map_table, get_tf_map_table
 )
+from _model import PeriodTransformer, SingleCorrModel
 # logging setting
 stream_handler = logging.StreamHandler()
 stream_handler.setLevel(logging.INFO)
@@ -30,28 +31,20 @@ st.set_page_config(layout='wide')
 
 PAGES = ['標的因子對應資訊', '資料欄位資訊', '因子分析', '更新標的因子對應表']
 
-@st.cache
-def get_cache_tables(cached_id:int) -> dict:
-    _cache_tables = {}
-    _cache_tables.update(get_target_feature_map(get_cache_id(1)))
-    _cache_tables.update(get_schema(get_cache_id(0)))
-    return _cache_tables
-
-@st.cache
+@st.cache # 0
 def get_dataset(cached_id:int) -> DataSet:
     return DataSet()
 
-@st.cache
+@st.cache # 0
 def get_schema(cached_id:int) -> Dict[Literal['資料欄位資訊'], Dict[str, pd.DataFrame]]:
     ret = {}
-    sheet_names = openpyxl.load_workbook(LocalTables.MAIN_SCHEMA.get_file_loc()).sheetnames
     with ExcelFile(LocalTables.MAIN_SCHEMA.get_file_loc()) as ex_file:
-        for sheet in sheet_names:
-            ret[sheet] = pd.read_excel(ex_file, sheet)
-
+        for sheet, name in zip(ex_file.book.worksheets, ex_file.book.sheetnames):
+            if sheet.sheet_state == 'visible':
+                ret[name] = pd.read_excel(ex_file, name)
     return {PAGES[1]:ret} 
 
-@st.cache
+@st.cache # 0
 def get_column_info(cached_id:int) -> Dict[str, ColumnInfo]:
     data:pd.DataFrame = get_schema(get_cache_id(0))[PAGES[1]]['欄位定義'][list(ColumnInfo._fields)].dropna()
     names = data['name'].values
@@ -59,8 +52,8 @@ def get_column_info(cached_id:int) -> Dict[str, ColumnInfo]:
 
     return {n:ColumnInfo(*i.tolist()) for n, i in zip(names, data)}
 
-@st.cache
-def get_target_feature_map(cached_id:int) -> Dict[Literal['標的因子對應資訊'], Dict[str, pd.DataFrame]]:
+@st.cache # 0
+def get_target_feature_map_from_file(cache_id:int) -> dict:
     ret={}
     with ExcelFile(LocalTables.TF_MAP.get_file_loc()) as ex_file:
         for sheet, name in zip(ex_file.book.worksheets, ex_file.book.sheetnames):
@@ -68,17 +61,30 @@ def get_target_feature_map(cached_id:int) -> Dict[Literal['標的因子對應資
                 ret[name] = pd.read_excel(ex_file, name)
     return {PAGES[0]:ret}
 
-
-@st.cache
+@st.cache # 0
 def get_tf_map(cached_id:int) -> Dict[str, List[str]]:
-    data = get_target_feature_map(get_cache_id(
-        1))[PAGES[0]]['標的因子對應表'][['target_name', 'feature_name']].dropna()
+    data = get_target_feature_map_from_file(get_cache_id(
+        0))[PAGES[0]]['標的因子對應表'][['target_name', 'feature_name']].dropna()
     ret = defaultdict(list)
     for target, feature in data.values.tolist():
         ret[target].append(feature)
     return ret
-    
-@st.cache
+
+@st.cache # 0
+def get_cache_tables(cached_id:int) -> dict:
+    _cache_tables = {}
+    _cache_tables.update(get_target_feature_map_from_file(get_cache_id(0)))
+    _cache_tables.update(get_schema(get_cache_id(0)))
+    return _cache_tables
+
+@st.cache # 1
+def get_target_feature_map(cached_id:int) -> Dict[Literal['標的因子對應資訊'], Dict[str, pd.DataFrame]]:
+    if get_tf_map_table() is None:
+        return get_target_feature_map_from_file()
+    else:
+        return get_tf_map_table()
+
+@st.cache # 0 -> # 1
 def _get_single_tasks(cache_id) -> Dict[str, Dict[str, Tuple[pd.Series, pd.Series]]]:
     cinfo_map = get_column_info(get_cache_id(0))
     tf_map = get_tf_map(get_cache_id(1))
@@ -102,7 +108,7 @@ def _get_single_tasks(cache_id) -> Dict[str, Dict[str, Tuple[pd.Series, pd.Serie
 
     return single_feature
 
-@st.cache
+@st.cache # 0 -> # 1
 def _get_multi_task(cache_id):
     cinfo_map = get_column_info(get_cache_id(0))
     tf_map = get_tf_map(get_cache_id(1))
@@ -130,20 +136,17 @@ def _get_multi_task(cache_id):
 
 def _single_feature_corr(tasks:Dict[str, Dict[str, Tuple[pd.Series, pd.Series]]],
         target_name:str) -> dict:
-
+    
     ret = defaultdict(dict)
     for t_name, task in tasks.items():
         if t_name != target_name:
             continue
         for name, (X, Y) in task.items():
-            ts = pd.concat([X, Y], axis=1, sort=True).dropna()
-            ret[target_name][name] = np.corrcoef(ts.values.T)[0,1].tolist()
+            model =SingleCorrModel(y_transformer=PeriodTransformer(get_period()))
+            print(model.get_corr(X, Y))
+            ret[target_name][name] = model.get_corr(X, Y)[0,1].tolist()
     return ret[target_name]
 
-
-@st.cache
-def get_disable_state(cache_id) -> bool:
-    return get_is_analysis()
 
 def _handle_analysis_on_click(is_analysis):
     set_is_analysis(is_analysis)
@@ -189,11 +192,19 @@ if __name__ == '__main__':
                     set_targets(targets)
                 elif sheet == LocalTables.TF_MAP.sheet:
                     with containers[idx]:
+                        checked = st.checkbox('JSON')
                         names = table['target_name'].values
                         targets = np.array(targets)
                         names, targets = np.ix_(names, targets)
                         _table = table[(names == targets).sum(axis=1)>0]
-                        st.dataframe(_table)
+                        if checked:
+                            group = _table.groupby(['target_code'])
+                            ret ={}
+                            for key, df in group:
+                                ret[key] = df.values[:,3:].tolist()
+                            st.json(ret)
+                        else:
+                            st.dataframe(_table)
             st.sidebar.button('執行分析', key='analysis', on_click=lambda : _handle_analysis_on_click(True))
 
         case '資料欄位資訊':
@@ -211,11 +222,16 @@ if __name__ == '__main__':
                         cols[idx].dataframe(dataset.series[cinfo.key])
             st.sidebar.button('執行分析', key='analysis', on_click=lambda : _handle_analysis_on_click(True))
         case '更新標的因子對應表':
+            target = st.sidebar.selectbox('選擇因子', [])
+            features = st.sidebar.multiselect('選擇標的', [])
             st.write('🚧')
         case '因子分析':
-            st.sidebar.button('返回設定頁', key='return', on_click=lambda : _handle_analysis_on_click(False))
-            st.sidebar.selectbox('選擇領先期別', Periods.get_list())
             st.markdown('## 執行分析項目')
+            st.sidebar.button('返回設定頁', key='return', on_click=lambda : _handle_analysis_on_click(False))
+            period = st.sidebar.selectbox('選擇領先期別', ['']+Periods.get_name())
+            st.sidebar.button('執行分析', key='a_rerun', on_click=lambda : _handle_analysis_on_click(False))
+            if period:
+                set_period(Periods.get(period))
             targets = get_targets()
             s_task = _get_single_tasks(cache_id)
             containers = st.tabs(targets)
