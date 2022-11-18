@@ -158,7 +158,7 @@ def _single_feature_corr(tasks: Dict[str, Dict[str, Tuple[pd.Series, pd.Series]]
     for t_name, task in tasks.items():
         if t_name != target_name:
             continue
-        for name, (X, Y) in task.items():
+        for name, (Y, X) in task.items(): # !!!
             model = SingleCorrModel(
                 y_transformer=PeriodTransformer(get_period()))
             print(model.get_corr(X, Y))

@@ -159,7 +159,7 @@ class DataSet:
     def _gen_config(cls) -> None:
         tables = {}
         schema = _read_local_table(
-            LocalTables.MAIN_SCHEMA)[list(ColumnInfo._fields)].dropna()
+            LocalTables.MAIN_SCHEMA)[list(ColumnInfo._fields)]
         for each in range(schema.values.shape[0]):
             column_info = ColumnInfo(*schema.values[each, :].tolist())
             if column_info.code:
