@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from collections import defaultdict
+import copy
 import glob
 import logging
 import os
@@ -13,7 +14,7 @@ from pandas import ExcelFile
 import streamlit as st
 from _data import DataSet
 from common import (
-    LocalTables, ColumnInfo, Periods, OUT_LOC, _force_dump
+    LocalTables, ColumnInfo, Periods, Feature, OUT_LOC, _force_dump
 )
 
 from _states import (
@@ -53,7 +54,6 @@ def get_column_info(cache_id: int) -> Dict[str, ColumnInfo]:
         get_cache_id(0))[PAGES[1]]['欄位定義'][list(ColumnInfo._fields)].dropna()
     names = data['name'].values
     data = data.values
-
     return {n: ColumnInfo(*i.tolist()) for n, i in zip(names, data)}
 
 
@@ -101,7 +101,7 @@ def get_target_feature_map(cache_id: int) -> Dict[Literal['標的因子對應資
 
 
 @st.cache  # 0 -> # 1
-def _get_single_tasks(cache_id) -> Dict[str, Dict[str, Tuple[pd.Series, pd.Series]]]:
+def _get_single_tasks(cache_id) -> Dict[str, Dict[str, Tuple[Feature, Feature]]]:
     cinfo_map = get_column_info(get_cache_id(0))
     tf_map = get_tf_map(get_cache_id(1))
     esp_names = []
@@ -109,59 +109,59 @@ def _get_single_tasks(cache_id) -> Dict[str, Dict[str, Tuple[pd.Series, pd.Serie
 
     for target, features in tf_map.items():
         try:
-            t_data = dataset.series[cinfo_map[target].key]
+            t_data = dataset.features[cinfo_map[target].key]
         except Exception as esp:
             esp_names.append(target)
         for f in features:
             try:
-                f_data = dataset.series[cinfo_map[f].key]
+                f_data = dataset.features[cinfo_map[f].key]
             except Exception as esp:
                 esp_names.append(target)
-            single_feature[target][f] = t_data, f_data
+            single_feature[target][f] = f_data, t_data
 
     if esp_names:
         logging.warning(f'invalid feature {esp_names} encontered')
 
-    return single_feature
+    return copy.deepcopy(single_feature) 
 
 
 @st.cache  # 0 -> # 1
-def _get_multi_task(cache_id):
+def _get_multi_task(cache_id) -> Dict[str, Tuple[Feature, List[Feature]]]:
     cinfo_map = get_column_info(get_cache_id(0))
     tf_map = get_tf_map(get_cache_id(1))
     esp_names = []
     multi_features = {}
-    feat = []
+    feats = []
     for target, features in tf_map.items():
         try:
-            t_data = dataset.series[cinfo_map[target].key]
+            t_data = dataset.features[cinfo_map[target].key]
         except Exception as esp:
             esp_names.append(target)
         for f in features:
             try:
-                f_data = dataset.series[cinfo_map[f].key]
+                f_data = dataset.features[cinfo_map[f].key]
             except Exception as esp:
                 esp_names.append(target)
-            feat.append(f_data)
+            feats.append(f_data)
 
-        multi_features[target] = t_data, feat
+        multi_features[target] = feats, t_data
     if esp_names:
         logging.warning(f'invalid feature {esp_names} encontered')
 
     return multi_features
 
 
-def _single_feature_corr(tasks: Dict[str, Dict[str, Tuple[pd.Series, pd.Series]]],
+def _single_feature_corr(tasks: Dict[str, Dict[str, Tuple[Feature, Feature]]],
                          target_name: str) -> dict:
 
     ret = defaultdict(dict)
     for t_name, task in tasks.items():
         if t_name != target_name:
             continue
-        for name, (Y, X) in task.items(): # !!!
+        for name, (X, Y) in task.items(): # !!!
             model = SingleCorrModel(
                 y_transformer=PeriodTransformer(get_period()))
-            print(model.get_corr(X, Y))
+            # print(model.get_corr(X, Y))
             ret[target_name][name] = model.get_corr(X, Y)[0, 1].tolist()
     return ret[target_name]
 
@@ -244,7 +244,7 @@ if __name__ == '__main__':
                     col_names = index_names[row*4:(row+1)*4]
                     for idx, each in enumerate(col_names):
                         cinfo = cinfo_map[each]
-                        cols[idx].dataframe(dataset.series[cinfo.key])
+                        cols[idx].dataframe(dataset.features[cinfo.key].series)
             st.sidebar.button('執行分析', key='analysis',
                               on_click=lambda: _handle_analysis_on_click(True))
         case '更新標的因子對應表':

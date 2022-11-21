@@ -31,6 +31,7 @@ class ColumnInfo(NamedTuple):
     table: str
     label: str
     label2: str
+    label3:str
 
     @property
     def key(self):
@@ -234,3 +235,10 @@ class Periods(Period, Enum):
             if i.name == value:
                 return i
         raise RuntimeError(f'Invalid period value encounterd {value}')
+
+
+class Feature(NamedTuple):
+    cinfo:ColumnInfo
+    series:pd.Series
+
+ONE_DAY = Period(1, 'D')
