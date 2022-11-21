@@ -26,6 +26,7 @@ DELIMITER = '`'
 class ColumnInfo(NamedTuple):
     code: str
     name: str
+    freq:str
     source: str
     table: str
     label: str

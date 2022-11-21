@@ -20,7 +20,8 @@ class PeriodTransformer(TransformerBase):
     def transform(self, data:pd.Series):
         if self._period is None:
             return data
-        return data.shift(-self._period.steps)
+        data.index = data.index - pd.Timedelta(self._period.steps, 'd')
+        return data
 
 
 class SingleCorrModel:

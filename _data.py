@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import copy
 from collections import defaultdict, namedtuple
 import logging
 import json
@@ -162,7 +163,7 @@ class DataSet:
             LocalTables.MAIN_SCHEMA)[list(ColumnInfo._fields)]
         for each in range(schema.values.shape[0]):
             column_info = ColumnInfo(*schema.values[each, :].tolist())
-            if column_info.code:
+            if (column_info.code == column_info.code):
                 if column_info.table not in tables:
                     tables[column_info.table] = TableInfo(column_info.source, [])._asdict()
                 tables[column_info.table][TableInfo._fields[1]].append(
@@ -171,7 +172,7 @@ class DataSet:
 
     @property
     def series(self):
-        copied = self._series.copy()
+        copied = copy.deepcopy(self._series)
         return copied
 
     def update_series(self, value: pd.Series):
