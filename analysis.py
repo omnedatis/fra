@@ -30,7 +30,7 @@ logging.basicConfig(level=0, handlers=[stream_handler], format='%(message)s')
 # streamlit config
 st.set_page_config(layout='wide')
 
-PAGES = ['標的因子對應資訊', '資料欄位資訊', '因子分析', '更新標的因子對應表']
+PAGES = ['標的因子對應資訊', '資料檢視', '更新標的因子對應表', '因子分析']
 
 
 @st.cache  # 0
@@ -100,7 +100,7 @@ def get_target_feature_map(cache_id: int) -> Dict[Literal['標的因子對應資
         return get_tf_map_table()
 
 
-@st.cache  # 0 -> # 1
+# @st.cache  # 0 -> # 1
 def _get_single_tasks(cache_id) -> Dict[str, Dict[str, Tuple[Feature, Feature]]]:
     cinfo_map = get_column_info(get_cache_id(0))
     tf_map = get_tf_map(get_cache_id(1))
@@ -172,8 +172,9 @@ def _handle_analysis_on_click(is_analysis):
 
 def _handle_report_on_click():
     reports = get_reports()
-    for name, each in reports.items():
-        _force_dump(each, f'{OUT_LOC}/{name}.csv')
+    if reports:
+        for name, each in reports.items():
+            _force_dump(each, f'{OUT_LOC}/{name}.csv')
 
 
 if __name__ == '__main__':
@@ -182,106 +183,116 @@ if __name__ == '__main__':
     _cache_tables = get_cache_tables(cache_id)
     cinfo_map = get_column_info(cache_id)
     if get_is_analysis():
-        page = PAGES[2]
+        page = st.sidebar.selectbox(
+            '選擇頁面', options=PAGES, index=3)
     else:
         page = st.sidebar.selectbox(
-            '選擇頁面', options=[i for i in _cache_tables]+[PAGES[3]])
+            '選擇頁面', options=PAGES)
 
-    match page:
-        case '標的因子對應資訊':
-            containers = st.tabs(_cache_tables[page])
-            for idx, sheet in enumerate(_cache_tables[page]):
-                table = _cache_tables[page][sheet]
-                if sheet == LocalTables.TARGETS.sheet:
-                    targets = st.sidebar.multiselect(
-                        '選擇標的', table['target_name'].values.tolist())
+    if page == PAGES[0]:
+        containers = st.tabs(_cache_tables[page])
+        for idx, sheet in enumerate(_cache_tables[page]):
+            table = _cache_tables[page][sheet]
+            if sheet == LocalTables.TARGETS.sheet:
+                targets = st.sidebar.multiselect(
+                    '選擇標的', table['target_name'].values.tolist())
 
-                    def _styler(x: pd.DataFrame, color: str) -> np.ndarray:
-                        ret = np.full(x.shape, False)
-                        names = table['target_name'].values
-                        _targets = np.array(targets)
-                        names, _targets = np.ix_(names, _targets)
-                        ret[(names == _targets).sum(axis=1) > 0] = True
-                        return np.where(ret, f'background-color: {color};', None)
-                    if not targets:
-                        targets = table['target_name'].values.tolist()
-                        with containers[idx]:
-                            st.dataframe(table)
-                    else:
-                        with containers[idx]:
-                            _table = table.style.apply(
-                                _styler, color='#fcec3d', axis=None)
-                            st.dataframe(_table)
-                    set_targets(targets)
-                elif sheet == LocalTables.TF_MAP.sheet:
+                def _styler(x: pd.DataFrame, color: str) -> np.ndarray:
+                    ret = np.full(x.shape, False)
+                    names = table['target_name'].values
+                    _targets = np.array(targets)
+                    names, _targets = np.ix_(names, _targets)
+                    ret[(names == _targets).sum(axis=1) > 0] = True
+                    return np.where(ret, f'background-color: {color};', None)
+                if not targets:
+                    targets = table['target_name'].values.tolist()
                     with containers[idx]:
-                        checked = st.checkbox('JSON')
-                        names = table['target_name'].values
-                        targets = np.array(targets)
-                        names, targets = np.ix_(names, targets)
-                        _table = table[(names == targets).sum(axis=1) > 0]
-                        if checked:
-                            group = _table.groupby(['target_code'])
-                            ret = {}
-                            for key, df in group:
-                                ret[key] = df.values[:, 3:].tolist()
-                            st.json(ret)
-                        else:
-                            st.dataframe(_table)
-            st.sidebar.button('執行分析', key='analysis',
-                              on_click=lambda: _handle_analysis_on_click(True))
-
-        case '資料欄位資訊':
-            index_name = None
-            sheet_name = _cache_tables[page]['欄位定義']
-
-            index_names = st.sidebar.multiselect(
-                '因子清單', options=[i for i in cinfo_map])
-            length = len(index_names)
-            if length > 0:
-                for row in range((length//4)+1):
-                    cols = st.columns(4,)
-                    col_names = index_names[row*4:(row+1)*4]
-                    for idx, each in enumerate(col_names):
-                        cinfo = cinfo_map[each]
-                        cols[idx].dataframe(dataset.features[cinfo.key].series)
-            st.sidebar.button('執行分析', key='analysis',
-                              on_click=lambda: _handle_analysis_on_click(True))
-        case '更新標的因子對應表':
-            features = st.sidebar.multiselect('選擇標的', [])
-            target = st.sidebar.selectbox('選擇因子', get_feature_code(get_cache_id(0)))
-            st.write('🚧')
-        case '因子分析':
-            st.markdown('## 執行分析項目')
-            st.sidebar.button('返回設定頁', key='return',
-                              on_click=lambda: _handle_analysis_on_click(False))
-            period = st.sidebar.selectbox('選擇領先期別', ['']+Periods.get_name())
-            st.sidebar.button('執行分析', key='a_rerun',
-                              on_click=lambda: _handle_analysis_on_click(False))
-            if period:
-                set_period(Periods.get(period))
-            targets = get_targets()
-            s_task = _get_single_tasks(cache_id)
-            containers = st.tabs(targets)
-            report = {}
-            for idx, t_name in enumerate(targets):
+                        st.dataframe(table)
+                else:
+                    with containers[idx]:
+                        _table = table.style.apply(
+                            _styler, color='#fcec3d', axis=None)
+                        st.dataframe(_table)
+                set_targets(targets)
+            elif sheet == LocalTables.TF_MAP.sheet:
                 with containers[idx]:
-                    ret = []
-                    items = sorted(_single_feature_corr(
-                        s_task, t_name).items(), key=lambda x: x[1], reverse=True)
-                    for name, value in items:
-                        ret.append(
-                            {**cinfo_map[name]._asdict(), **{"coef": value}})
-                    df = pd.DataFrame(ret)
-                    report[t_name] = df
-                    st.dataframe(df)
-            set_reports(report)
-            st.sidebar.button('產生報表', on_click=_handle_report_on_click)
+                    checked = st.checkbox('JSON')
+                    names = table['target_name'].values
+                    targets = np.array(targets)
+                    names, targets = np.ix_(names, targets)
+                    _table = table[(names == targets).sum(axis=1) > 0]
+                    if checked:
+                        group = _table.groupby(['target_code'])
+                        ret = {}
+                        for key, df in group:
+                            ret[key] = df.values[:, 3:].tolist()
+                        st.json(ret)
+                    else:
+                        st.dataframe(_table)
+        st.sidebar.button('執行分析', key='analysis',
+                            on_click=lambda: _handle_analysis_on_click(True))
 
-        case _:
-            raise RuntimeError(f'unrecognizable fable {page}')
+    elif page == PAGES[1]:
+        index_name = None
+        sheet_name = _cache_tables[page]['欄位定義']
+        label1s = st.sidebar.multiselect('選擇類別一', list(set([i.label for i in cinfo_map.values()])))
+        label2s = st.sidebar.multiselect('選擇類別二', list(set([i.label2 for i in cinfo_map.values()])))
+        label3s = st.sidebar.multiselect('選擇類別三', list(set([i.label3 for i in cinfo_map.values()])))
+        _index_name = {k:v for k,v in cinfo_map.items()}
+        if not label1s + label2s + label3s:
+            index_names = st.sidebar.multiselect(
+                '因子清單', options=[k for k in _index_name]) 
+        else:
+            if label1s:
+                _index_name = {k:v for k,v in _index_name.items() if v.label in label1s}
+            if label2s:
+                _index_name = {k:v for k,v in _index_name.items() if v.label2 in label2s}
+            if label3s:
+                _index_name = {k:v for k,v in _index_name.items() if v.label3 in label3s}
+            index_names = st.sidebar.multiselect(
+                '因子清單', options=[k for k in _index_name]) 
+        length = len(index_names)
+        if length > 0:
+            for row in range((length//3)+1):
+                cols = st.columns(3,)
+                col_names = index_names[row*3:(row+1)*3]
+                for idx, each in enumerate(col_names):
+                    cinfo = cinfo_map[each]
+                    cols[idx].dataframe(dataset.features[cinfo.key].series)
+        st.sidebar.button('執行分析', key='analysis',
+                            on_click=lambda: _handle_analysis_on_click(True))
+    elif page == PAGES[2]:
+        features = st.sidebar.multiselect('選擇標的', [])
+        target = st.sidebar.selectbox('選擇因子', get_feature_code(get_cache_id(0)))
+        st.write('🚧')
+    elif page == PAGES[3]:
+        st.markdown('## 執行分析項目')
+        
+        period = st.sidebar.selectbox('選擇領先期別', Periods.get_name(),index=4)
+        col1, col2 = st.sidebar.columns(2)
+        col1.button('產生報表', on_click=_handle_report_on_click)
+        col2.button('返回', key='return',
+                            on_click=lambda: _handle_analysis_on_click(False))
+        if period:
+            set_period(Periods.get(period))
+        targets = get_targets()
+        s_task = _get_single_tasks(cache_id)
+        containers = st.tabs(targets)
+        report = {}
+        for idx, t_name in enumerate(targets):
+            with containers[idx]:
+                ret = []
+                items = sorted(_single_feature_corr(
+                    s_task, t_name).items(), key=lambda x: x[1], reverse=True)
+                for name, value in items:
+                    ret.append(
+                        {**cinfo_map[name]._asdict(), **{"coef": value}})
+                df = pd.DataFrame(ret)
+                report[t_name] = df
+                st.dataframe(df)
 
-    # with st.sidebar.expander('!!!'):
-    #     cmd = st.text_input(' ')
-    #     if cmd == 'clear':
-    #         clear_cache(0)
+        set_reports(report)
+
+    else:
+        raise RuntimeError(f'unrecognizable fable {page}')
+

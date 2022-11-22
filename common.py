@@ -224,6 +224,9 @@ class Periods(Period, Enum):
     ONEMONTH = Period(1, 'M')
     TWOMONTH = Period(2, 'M')
     ONEQUATAR = Period(1, 'Q')
+    TWOQUATAR = Period(2, 'Q')
+    FOURQUATAR = Period(4, 'Q')
+    
 
     @classmethod
     def get_name(cls) -> List[str]:
