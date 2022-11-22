@@ -41,7 +41,7 @@ class SingleCorrModel:
 
     def _fit(self, x_data:Feature, y_data:Feature) -> pd.DataFrame:
         x_info, y_info = x_data.cinfo, y_data.cinfo
-        x_data, y_data = x_data.series, y_data.series
+        x_data, y_data = x_data.series.copy(), y_data.series.copy()
         if self._x_transformer is not None:
             x_data = self._x_transformer.transform(x_data)
         if self._y_transformer is not None:

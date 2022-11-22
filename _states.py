@@ -33,7 +33,7 @@ def set_is_analysis(state: bool) -> bool:
 
 def get_targets() -> List[str]:
     global _targets
-    return _targets
+    return _targets.copy()
 
 
 def set_targets(values: List[str]) -> List[str]:
@@ -58,7 +58,7 @@ def get_cache_id(which: int) -> int:
 
 def get_reports() -> Dict[str, Union[pd.DataFrame, pd.Series]]:
     global _reports
-    return _reports
+    return _reports.copy()
 
 
 def set_reports(values:Dict[str, Union[pd.DataFrame, pd.Series]]):

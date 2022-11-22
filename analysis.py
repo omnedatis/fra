@@ -5,7 +5,7 @@ import glob
 import logging
 import os
 import threading as mt
-from typing import Dict, Literal, Tuple, List, Optional
+from typing import Dict, Literal, Tuple, List, Optional, Any
 
 import numpy as np
 import openpyxl
@@ -30,7 +30,7 @@ logging.basicConfig(level=0, handlers=[stream_handler], format='%(message)s')
 # streamlit config
 st.set_page_config(layout='wide')
 
-PAGES = ['標的因子對應資訊', '資料檢視', '更新標的因子對應表', '因子分析']
+PAGES = ['標的因子對應資訊', '資料檢視', '更新標的因子對應表', '因子分析', '領先期別分析']
 
 
 @st.cache  # 0
@@ -175,6 +175,7 @@ def _handle_report_on_click():
     if reports:
         for name, each in reports.items():
             _force_dump(each, f'{OUT_LOC}/{name}.csv')
+        set_reports({})
 
 
 if __name__ == '__main__':
@@ -262,7 +263,7 @@ if __name__ == '__main__':
         st.sidebar.button('執行分析', key='analysis',
                             on_click=lambda: _handle_analysis_on_click(True))
     elif page == PAGES[2]:
-        features = st.sidebar.multiselect('選擇標的', [])
+        features = st.sidebar.multiselect('選擇標的', get_targets())
         target = st.sidebar.selectbox('選擇因子', get_feature_code(get_cache_id(0)))
         st.write('🚧')
     elif page == PAGES[3]:
@@ -278,7 +279,7 @@ if __name__ == '__main__':
         targets = get_targets()
         s_task = _get_single_tasks(cache_id)
         containers = st.tabs(targets)
-        report = {}
+        reports = {}
         for idx, t_name in enumerate(targets):
             with containers[idx]:
                 ret = []
@@ -288,11 +289,28 @@ if __name__ == '__main__':
                     ret.append(
                         {**cinfo_map[name]._asdict(), **{"coef": value}})
                 df = pd.DataFrame(ret)
-                report[t_name] = df
+                reports[f'{Periods.get(period).name}\\{t_name}'] = df
                 st.dataframe(df)
-
-        set_reports(report)
+        set_reports({**get_reports(), **reports})
+    elif page == PAGES[4]:
+        targets = get_targets()
+        target = st.sidebar.selectbox('選擇標的', targets)
+        st.sidebar.button('產生報告', on_click=_handle_report_on_click)
+        s_task = _get_single_tasks(cache_id)
+        period_values = defaultdict(dict)
+        for period in Periods:
+           
+            set_period(period)
+            features = _single_feature_corr(s_task, target)
+            for fname, fvalue in features.items():
+                period_values[fname][period.name] = fvalue
+        is_plot = st.checkbox('PLOT')
+        df = pd.DataFrame(period_values).T
+        if not is_plot:
+            st.dataframe(df)
+        
+        set_reports({**get_reports(), **{target:df}})
 
     else:
-        raise RuntimeError(f'unrecognizable fable {page}')
+        raise RuntimeError(f'unrecognizable page {page}')
 
