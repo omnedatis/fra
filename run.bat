@@ -1,2 +1,4 @@
 call activate fra
-streamlit run analysis.py --server.port=%1
+streamlit run analysis.py 
+
+

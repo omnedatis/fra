@@ -11,11 +11,13 @@ from typing import NamedTuple, List, Union, Optional, Any, Dict, Callable, Tuple
 
 import pandas as pd
 
-SCHEMA_COLUMNS = ['code', 'source', 'table', 'label', 'name', 'label2']
-OUT_LOC = './_reports'
-DATA_LOC = './_data'
-DATA_CACHE_LOC = DATA_LOC + '/_cache'
-TASK_LOC = DATA_CACHE_LOC + '/_tasks'
+SCHEMA_COLUMNS = ['code', 'name', 'freq', 'label',
+                  'label2', 'label3', 'source', 'table']
+DOC_LOC = '.\\_docs'
+OUT_LOC = '.\\_reports'
+DATA_LOC = '.\\_data'
+DATA_CACHE_LOC = DATA_LOC + '\\_cache'
+TASK_LOC = DATA_CACHE_LOC + '\\_tasks'
 DATE_INDEX_NAME = 'PriceDt'
 PRICE_ALIAS = {DATE_INDEX_NAME: ['PriceDt']}
 
@@ -26,12 +28,12 @@ DELIMITER = '`'
 class ColumnInfo(NamedTuple):
     code: str
     name: str
-    freq:str
+    freq: str
     source: str
     table: str
     label: str
     label2: str
-    label3:str
+    label3: str
 
     @property
     def key(self):
@@ -114,81 +116,24 @@ class ExcelFormats(str, Enum):
     XSLX = '.xlsx'
 
 
-class Sheet(NamedTuple):
-    file: str
+class Table(NamedTuple):
+    file_table: str
+    file_name: str
     sheet: str
     surfix: ExcelFormats
 
-
-class LocalTables(Sheet, Enum):
-    MAIN_SCHEMA = Sheet('./_docs/schema', '欄位定義', ExcelFormats.XSLX)
-    TARGETS = Sheet('./_docs/target_feature_map', '標的列表', ExcelFormats.XSLX)
-    FEATURE = Sheet('./_docs/target_feature_map', '因子列表', ExcelFormats.XSLX)
-    TF_MAP = Sheet('./_docs/target_feature_map', '標的因子對應表', ExcelFormats.XSLX)
-    F_TYPE = Sheet('./_docs/target_feature_map', '因子類型', ExcelFormats.XSLX)
-
     def get_file_loc(self):
-        return self.file+self.surfix.value
+        return self.file_table+'\\'+self.file_name+self.surfix.value
 
 
-def _force_load(fp: str):
-    if not os.path.isfile(fp):
-        raise FileNotFoundError(f'file {fp} could not be found')
-    ftype = fp.split('.')[-1]
-    match ftype:
-        case 'csv':
-            data = pd.read_csv(fp, encoding='utf-8-sig')
-        case 'json':
-            data = json.load(open(fp, 'r'))
-        case 'pkl':
-            data = pickle.load(open(fp, 'rb'))
-        case _:
-            logging.warning('tring to force loading in binary form')
-            data = pickle.load(open(fp, 'rb'))
-    return data
-
-
-def _force_dump(obj: Any, fp: str):
-    dir_ = os.path.dirname(fp)
-    if dir_ != '.' and not os.path.exists(dir_):
-        os.makedirs(dir_)
-    ftype = fp.split('.')[-1]
-    match ftype:
-        case 'csv':
-            if isinstance(obj, pd.DataFrame) or isinstance(obj, pd.Series):
-                obj.to_csv(fp, encoding='utf-8-sig')
-            else:
-                with open(fp, 'w') as file:
-                    file.writelines()
-        case 'json':
-            json.dump(obj, open(fp, 'w'), ensure_ascii=False)
-        case 'pkl':
-            pickle.dump(obj, open(fp, 'wb'))
-        case _:
-            logging.warning('tring to force dumping binary file')
-            pickle.dump(obj, open(fp, 'wb'))
-
-
-def get_valid_name(table_name: str, column_name: str) -> str:
-    if '/' in column_name:
-        column_name = column_name.replace('/', '-') + '_MOD'
-    return f'{table_name}/{column_name}'
-
-
-class ReturnableTread:
-
-    def __init__(self, target: Callable, args: Tuple):
-        self._target = target
-        self._args = args
-        self._tread = mt.Thread(target=self._run)
-        self._return = None
-
-    def _run(self):
-        if self._args is not None:
-            ret = self._target(self._args)
-        else:
-            ret = self._target()
-        self._return = ret
+class LocalTables(Table, Enum):
+    MAIN_SCHEMA = Table(DOC_LOC, 'schema', '欄位定義', ExcelFormats.XSLX)
+    TARGETS = Table(DOC_LOC, 'target_feature_map', '標的列表', ExcelFormats.XSLX)
+    TFEATURES = Table(DOC_LOC, 'target_feature_map',
+                      '標的因子列表', ExcelFormats.XSLX)
+    FEATURES = Table(DOC_LOC, 'target_feature_map', '因子列表', ExcelFormats.XSLX)
+    TF_MAP = Table(DOC_LOC, 'target_feature_map', '標的因子對應表', ExcelFormats.XSLX)
+    F_TYPE = Table(DOC_LOC, 'target_feature_map', '因子類型', ExcelFormats.XSLX)
 
 
 PERIOD_NAME_MAP = {
@@ -226,10 +171,9 @@ class Periods(Period, Enum):
     ONEQUATAR = Period(1, 'Q')
     TWOQUATAR = Period(2, 'Q')
     FOURQUATAR = Period(4, 'Q')
-    
 
     @classmethod
-    def get_name(cls) -> List[str]:
+    def get_names(cls) -> List[str]:
         return [i.name for i in cls]
 
     @classmethod
@@ -241,7 +185,14 @@ class Periods(Period, Enum):
 
 
 class Feature(NamedTuple):
-    cinfo:ColumnInfo
-    series:pd.Series
+    cinfo: ColumnInfo
+    series: pd.Series
+
+
+class Task(NamedTuple):
+    tname: str
+    target: Feature
+    features: List[Feature]
+
 
 ONE_DAY = Period(1, 'D')

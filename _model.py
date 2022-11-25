@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from typing import Optional
 
-from common import Period, Feature, ONE_DAY
+from _const import Period, Feature, ONE_DAY
 
 class TransformerBase(metaclass=ABCMeta):
 

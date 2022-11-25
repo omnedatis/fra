@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from typing import List, Union, Dict
 import pandas as pd
-from common import Period
+from _const import Period
 
 _is_analysis = False
 
@@ -17,7 +17,9 @@ _cache_2 = 0
 
 _period = None
 
-_tf_map_table = None
+_tf_map_table = {}
+
+_page_index = 0
 
 
 def get_is_analysis() -> bool:
@@ -74,10 +76,18 @@ def set_period(value:Period):
     _period = value
     return _period
 
-def get_tf_map_table()-> Union[pd.DataFrame, None]:
+def get_tf_map_table() -> Dict[str, Dict[str, List[str]]]:
     global _tf_map_table
     return _tf_map_table
 
 def set_tf_map_table(value:pd.DataFrame):
     global _tf_map_table
     _tf_map_table = value
+
+def get_page_index() -> int:
+    global _page_index
+    return _page_index
+
+def set_page_index(value:int):
+    global _page_index
+    _page_index = value

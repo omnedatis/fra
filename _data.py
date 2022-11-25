@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import copy
 from collections import defaultdict, namedtuple
 import logging
 import json
@@ -9,16 +8,16 @@ from typing import Dict, List, Union, NamedTuple
 import pandas as pd
 from sqlalchemy import create_engine
 
-from common import (
-    EngineConfig, LocalTables, ExcelFormats, DataSource, Sheet,
-    SQLTables, SCHEMA_COLUMNS, DATA_LOC, DATA_CACHE_LOC, _force_dump, _force_load,
-    get_valid_name, ColumnInfo, TableInfo, Feature
+from _const import (
+    EngineConfig, LocalTables, ExcelFormats, DataSource, Table,
+    SQLTables, DATA_LOC, DATA_CACHE_LOC, ColumnInfo, TableInfo, Feature
 )
+from _utils import _force_dump, _force_load, _get_valid_name
 
 
-def _read_local_table(table: Sheet) -> pd.DataFrame:
+def _read_local_table(table: Table) -> pd.DataFrame:
     if table.surfix == ExcelFormats.XSLX:
-        data = pd.read_excel(table.file+table.surfix, table.sheet)
+        data = pd.read_excel(table.get_file_loc(), table.sheet)
     else:
         raise RuntimeError(f'invalid local table type {table.surfix}')
     return data
@@ -36,7 +35,7 @@ class _MiscDataProvider:
         if not os.path.isfile(f'{DATA_CACHE_LOC}/{table_name}.pkl'):
             logging.info('Loading all market data from DB')
             # no interface
-            data = _read_local_table(Sheet(cls.MISC_DB_LOC+f'/{table_name}', 'data', ExcelFormats.XSLX))
+            data = _read_local_table(Table(cls.MISC_DB_LOC, table_name, 'data', ExcelFormats.XSLX))
             _force_dump(data, f'{DATA_CACHE_LOC}/{table_name}.pkl')
         else:
             logging.info('Loading all market data from file')
@@ -48,7 +47,7 @@ class _MiscDataProvider:
         if not os.path.isfile(f'{cls.MISC_DB_LOC}/{table_name}.xlsx'):
             raise FileNotFoundError(f'table {table_name} not found')
             
-        full_name = get_valid_name(table_name, column_name)
+        full_name = _get_valid_name(table_name, column_name)
         if not os.path.isfile(f'{DATA_CACHE_LOC}/{full_name}.pkl'):
             logging.info(f'Loading data on {full_name} from all file')
             table = cls._get_all_data(table_name).set_index('PriceDt')
@@ -96,7 +95,7 @@ class _SQLDBDataProvider:
 
     def _get_data(self, table_name:str, column_name:str) -> pd.Series:
         sql_table = SQLTables.get(table_name)
-        full_name = get_valid_name(table_name, column_name)
+        full_name = _get_valid_name(table_name, column_name)
 
         if not os.path.isfile(f'{DATA_CACHE_LOC}/{full_name}.pkl'):
             logging.info(f'Loading data on {full_name} from all file')
@@ -154,7 +153,7 @@ class DataSet:
                 else:
                     raise RuntimeError(f'undefined source {tinfo}')
      
-                self.update_data(data, cinfo)
+                self._update_data(data, cinfo)
 
     @classmethod
     def _gen_config(cls) -> None:
@@ -174,11 +173,11 @@ class DataSet:
         json.dump(tables, open(cls.CONFIG_LOC, 'w'), ensure_ascii=False)
 
     @property
-    def features(self):
-        copied = copy.deepcopy(self._features)
+    def features(self) -> Dict[str, Feature]:
+        copied = self._features
         return copied
 
-    def update_data(self, value: pd.Series, cinfo:ColumnInfo):
+    def _update_data(self, value: pd.Series, cinfo:ColumnInfo):
         if cinfo.key in self._features:
             raise RuntimeError('reseting data not allowed')
         self._features[cinfo.key] = Feature(cinfo, value)
