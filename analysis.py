@@ -12,13 +12,13 @@ from pandas import ExcelFile
 import streamlit as st
 
 from _const import (
-    SCHEMA_COLUMNS, OUT_LOC, LocalTables, ColumnInfo, Task, Periods, Feature
+    DELIMITER, SCHEMA_COLUMNS, OUT_LOC, LocalTables, ColumnInfo, Task, Periods, Feature
 )
 from _utils import _force_dump, _force_load
 from _data import DataSet
 from _model import SingleCorrModel, PeriodTransformer
 from  _states import (
-    get_cache_id, get_tf_map_table, set_tf_map_table, 
+    get_cache_id, get_task_map_table, set_task_map_table, 
     get_targets, set_targets, get_reports, set_reports, get_period, set_period
 )
 
@@ -48,35 +48,37 @@ def get_features(cache_id) -> Dict[str, ColumnInfo]:
     ridx  = feats.shape[0]
     for each in range(ridx):
         _row = feats.iloc[each,:]
-        ret[_row['name']] = ColumnInfo(**_row[SCHEMA_COLUMNS].to_dict())
+        _cinfo = ColumnInfo(**_row[SCHEMA_COLUMNS].to_dict())
+        if (_cinfo.code==_cinfo.code):
+            ret[_cinfo.key] = _cinfo
     return ret
     
 
 @st.cache # immutable
-def get_tf_map_from_file(cache_id) -> Dict[str, Dict[str, List[str]]]:
+def get_task_map_from_file(cache_id) -> Dict[str, Dict[str, List[str]]]:
     tables = get_tables(get_cache_id(0))
     tfeatures = tables[LocalTables.TFEATURES.file_name][LocalTables.TFEATURES.sheet]
     features = tables[LocalTables.FEATURES.file_name][LocalTables.FEATURES.sheet]
     ret = defaultdict(lambda: defaultdict(list))
-    for t, n, tf in tfeatures[['target_code', 'target_name', 'name']].values.tolist():
-        for t_, f in features[['target_code', 'name']].values.tolist():
-            if t == t_:
-                ret[n][tf].append(f)
+    for tc, tn, c, t, n in tfeatures[['target_code', 'target_name', 'code','table','name']].values.tolist():
+        for tc_, c_, t_, n_ in features[['target_code', 'code','table', 'name']].values.tolist():
+            if tc == tc_:
+                ret[tn][DELIMITER.join([c, t, n])].append(DELIMITER.join([c_, t_, n_]))
     return ret
 
 @st.cache #1
 def get_tf_map(cache_id):
-    return get_tf_map_table() or get_tf_map_from_file(get_cache_id(0))
+    return get_task_map_table() or get_task_map_from_file(get_cache_id(0))
 
 @st.cache #1
 def _gen_task(cache_id) -> Dict[str, List[Task]]:
     ret = defaultdict(list)
     tf_map = get_tf_map(get_cache_id(1))
-    for target, tvalue in tf_map.items():
-        for tfeature, tfvalue in tvalue.items():
-            _feautres = [DATA.features[FEATURES[i].key] for i in tfvalue]
-            task = Task(tfeature, DATA.features[FEATURES[tfeature].key], _feautres)
-            ret[target].append(task)
+    for task, task_value in tf_map.items():
+        for target, features in task_value.items():
+            _feautres = [DATA.features[i] for i in features]
+            task = Task(target, DATA.features[target], _feautres)
+            ret[FEATURES[target].name].append(task)
     return ret
 
 
@@ -87,7 +89,7 @@ def _get_corr(task:Task):
                 y_transformer=PeriodTransformer(get_period()))
     ret = []
     for each in features:
-        value = model.get_corr(each, target)[0, 1].tolist()
+        value =model.get_corr(each, target)[0, 1].tolist()
         ret.append({**each.cinfo._asdict(), **{'coef':value}})
     return pd.DataFrame(ret).set_index('name')
 
@@ -133,7 +135,8 @@ if __name__ == '__main__':
             _feautres = {k:v for k, v in _feautres.items() if v.label2 in sl2s}
         if sl3s:
             _feautres = {k:v for k, v in _feautres.items() if v.label3 in sl3s}
-        _sf = st.sidebar.multiselect('選擇因子', _feautres)
+        _sf = st.sidebar.multiselect('選擇因子', [FEATURES[i].name for i in _feautres])
+        _fname = [i for i in _feautres]
         length = len(_sf)
         if length:
             for row in range((length//_COL_NUM)+1):
@@ -141,13 +144,19 @@ if __name__ == '__main__':
                 _d_name = _sf[row*_COL_NUM:(row+1)*_COL_NUM]
                 for idx, each_dn in enumerate(_d_name):
                     with cols[idx]:
-                        _data = DATA.features[FEATURES[each_dn].key].series
+                        _data = DATA.features[_fname[_sf.index(each_dn)]].series
                         st.dataframe(_data)
     elif page == PAGES[2]:
         st.markdown('## 現有對應關係檢視')
         col1, col2 = st.columns([1, 2])
         with col1:
-            st.json(TF_MAP)
+            _tf_map = {}
+            for task, task_value in TF_MAP.items():
+                _tf_map[task] = {}
+                for target, feature in task_value.items():
+                    _tf_map[task][FEATURES[target].name] = [FEATURES[i].name for i in feature]
+
+            st.json(_tf_map)
     elif page == PAGES[3]:
         st.markdown('## 執行分析項目')
         
@@ -155,29 +164,31 @@ if __name__ == '__main__':
         col1, col2 = st.sidebar.columns(2)
         col1.button('產生報表', on_click=_handle_report_on_click)
         set_period(Periods.get(period))
-        _reports = []
-        tnames = [i for i in TASKS]
+        _reports = {}
+        tnames = [FEATURES[i].name for i in TASKS]
         containers = st.tabs(tnames)
+
         for idx, _task in enumerate(TASKS.values()):
             data = _get_corr(_task)
             with containers[idx]:
                 st.dataframe(data)
-            _reports[f'{period}\\{_task.tname}'] = data
+            _reports[f'{period}\\{FEATURES[_task.tname].name}'] = data
         set_reports({**get_reports(), **_reports})
     elif page == PAGES[4]:
         targets = get_targets()
+        rtarget = {FEATURES[k].name:v for k, v in TASKS.items()}
         if not targets:
-            set_targets([i for i in TASKS])
+            set_targets([FEATURES[i].name for i in TASKS])
         target = st.sidebar.selectbox('選擇標的', get_targets())
         col1, col2 = st.sidebar.columns(2)
         col1.button('產生報表', on_click=_handle_report_on_click)
         ret = []
         for period in Periods:
             set_period(period)
-            srs = _get_corr(TASKS[target])['coef'].rename(f'{period.name}')
+            srs = _get_corr(rtarget[target])['coef'].rename(f'{period.name}')
             ret.append(srs)
         data = pd.concat(ret, axis=1)
-        info = [FEATURES[i]._asdict() for i in  data.index.values.tolist()]
+        info = [i.cinfo._asdict() for i in rtarget[target].features]
         info = pd.DataFrame(info).set_index('name')
         data = pd.concat([info, data], axis=1)
         st.dataframe(data)

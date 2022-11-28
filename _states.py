@@ -76,11 +76,11 @@ def set_period(value:Period):
     _period = value
     return _period
 
-def get_tf_map_table() -> Dict[str, Dict[str, List[str]]]:
+def get_task_map_table() -> Dict[str, Dict[str, List[str]]]:
     global _tf_map_table
     return _tf_map_table
 
-def set_tf_map_table(value:pd.DataFrame):
+def set_task_map_table(value:pd.DataFrame):
     global _tf_map_table
     _tf_map_table = value
 
